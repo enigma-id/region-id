@@ -4,23 +4,37 @@
 // This library offers:
 // - Complete database of Indonesian regions (provinces, regencies, districts, villages)
 // - Fast search with filters by type, name, and parent
-// - Optional Redis caching for performance
+// - Optional Redis caching for performance via engine/ds/redis
 // - Automatic migration support
 // - REST API handlers using logistics-id/engine
 //
-// Basic usage:
+// Basic usage with Redis caching:
 //
 //	import "github.com/enigma-id/region-id"
+//	import "github.com/logistics-id/engine/ds/redis"
+//
+//	// Initialize Redis using engine's global singleton
+//	redis.NewConnection(redis.Config{
+//	    Server:   "localhost:6379",
+//	    Password: "",
+//	    Prefix:   "regions",
+//	}, logger)
 //
 //	handler, err := regionid.Initialize(regionid.Config{
 //	    DB:          db,
-//	    Redis:       redis,
 //	    AutoMigrate: true,
 //	})
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	handler.RegisterRoutes(server)
+//
+// Basic usage without caching:
+//
+//	handler, err := regionid.Initialize(regionid.Config{
+//	    DB:          db,
+//	    AutoMigrate: true,
+//	})
 package regionid
 
 import (
@@ -31,17 +45,16 @@ import (
 	"github.com/enigma-id/region-id/pkg/handler"
 	"github.com/enigma-id/region-id/pkg/migration"
 	"github.com/enigma-id/region-id/pkg/repository"
-	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 )
+
+// Handler is an alias for pkg/handler.Handler for easier external access
+type Handler = handler.Handler
 
 // Config holds configuration for the region-id library.
 type Config struct {
 	// Database connection (required)
 	DB *bun.DB
-
-	// Redis client (optional - if nil, caching is disabled)
-	Redis *redis.Client
 
 	// AutoMigrate runs migrations on initialization (optional, default: false)
 	// When true, all pending migrations will be run automatically
@@ -53,11 +66,15 @@ type Config struct {
 // It performs the following steps:
 // 1. Validates the configuration (DB is required)
 // 2. Runs migrations if AutoMigrate is enabled
-// 3. Initializes cache manager if Redis is provided
+// 3. Initializes cache manager using global Redis singleton (if available)
 // 4. Creates the repository and handler
 //
+// Note: If you want to use Redis caching, call redis.NewConnection() before
+// initializing this library. The cache manager will automatically use the
+// global Redis singleton if it has been initialized.
+//
 // Returns an error if configuration is invalid or migrations fail.
-func Initialize(cfg Config) (*handler.Handler, error) {
+func Initialize(cfg Config) (*Handler, error) {
 	// Validate config
 	if cfg.DB == nil {
 		return nil, fmt.Errorf("database connection is required")
@@ -73,11 +90,8 @@ func Initialize(cfg Config) (*handler.Handler, error) {
 		log.Println("Migrations completed successfully")
 	}
 
-	// Initialize cache manager (if Redis provided)
-	var cache *repository.CacheManager
-	if cfg.Redis != nil {
-		cache = repository.NewCacheManager(cfg.Redis)
-	}
+	// Initialize cache manager (uses global Redis singleton if available)
+	cache := repository.NewCacheManager()
 
 	// Initialize repository
 	repo := repository.NewRegionRepository(cfg.DB, cache)

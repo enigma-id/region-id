@@ -3,35 +3,35 @@ package repository
 import (
 	"context"
 	"crypto/sha1"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/logistics-id/engine/ds/redis"
 )
 
-// CacheManager handles Redis caching for region data.
+// CacheManager handles Redis caching for region data using engine/ds/redis.
 //
 // The cache manager provides:
-// - Automatic JSON serialization/deserialization
-// - Base64 encoding to avoid Redis special character issues
+// - Automatic JSON serialization/deserialization via engine/ds/redis
 // - Version-aware cache keys for automatic invalidation
-// - Fallback handling for old cached data
 //
 // Cache entries use a 24-hour TTL by default.
+//
+// The manager uses engine's global Redis singleton via package-level functions.
+// Users should call redis.NewConnection() before initializing the region-id library.
 type CacheManager struct {
-	client *redis.Client
 	prefix string
 }
 
-// NewCacheManager creates a new cache manager with the given Redis client.
+// NewCacheManager creates a new cache manager using engine's global Redis singleton.
 //
 // The cache prefix is set to "regions" for all keys.
-func NewCacheManager(client *redis.Client) *CacheManager {
+// If Redis has not been initialized via redis.NewConnection(), cache operations
+// will silently fail (cache miss behavior).
+func NewCacheManager() *CacheManager {
 	return &CacheManager{
-		client: client,
 		prefix: "regions",
 	}
 }
@@ -39,31 +39,13 @@ func NewCacheManager(client *redis.Client) *CacheManager {
 // Get retrieves cached data by key and deserializes it into out.
 //
 // Returns (true, nil) if data is found and successfully deserialized.
-// Returns (false, nil) on cache miss.
-// Returns (false, err) on Redis errors (excluding redis.Nil).
-//
-// Handles both base64-encoded and plain JSON for backward compatibility.
+// Returns (false, nil) on cache miss or if Redis is not initialized.
+// Returns (false, err) on Redis errors.
 func (cm *CacheManager) Get(ctx context.Context, key string, out interface{}) (bool, error) {
-	var encoded string
-	if err := cm.client.Get(ctx, key).Scan(&encoded); err != nil {
-		if err == redis.Nil {
-			return false, nil // Cache miss
-		}
-		return false, err
-	}
-
-	// Decode base64
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	// Use engine/ds/redis Read function (uses global singleton internally)
+	err := redis.Read(ctx, key, out)
 	if err != nil {
-		// Fallback: might be plain JSON from old version
-		if err := json.Unmarshal([]byte(encoded), out); err != nil {
-			return false, nil
-		}
-		return true, nil
-	}
-
-	// Decode JSON
-	if err := json.Unmarshal(decoded, out); err != nil {
+		// engine/ds/redis returns error on cache miss or not initialized
 		return false, nil
 	}
 
@@ -72,32 +54,34 @@ func (cm *CacheManager) Get(ctx context.Context, key string, out interface{}) (b
 
 // Set stores data in cache with the specified TTL.
 //
-// Data is automatically serialized to JSON and base64-encoded.
-// Use ttl=0 for no expiration (not recommended for most cases).
+// Data is automatically serialized to JSON by engine/ds/redis.
+// Silently fails if Redis is not initialized.
+// Note: engine/ds/redis Save doesn't support TTL parameter.
 func (cm *CacheManager) Set(ctx context.Context, key string, data interface{}, ttl time.Duration) error {
-	jsonBytes, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal cache data: %w", err)
-	}
-
-	encoded := base64.StdEncoding.EncodeToString(jsonBytes)
-	return cm.client.Set(ctx, key, encoded, ttl).Err()
+	// Silently ignore errors (e.g., Redis not initialized)
+	_ = redis.Save(ctx, key, data)
+	return nil
 }
 
 // Delete removes a specific key from the cache.
 //
-// Silently succeeds if the key doesn't exist.
+// Silently succeeds if the key doesn't exist or if Redis is not initialized.
 func (cm *CacheManager) Delete(ctx context.Context, key string) error {
-	return cm.client.Del(ctx, key).Err()
+	// Silently ignore errors (e.g., Redis not initialized)
+	_ = redis.Delete(ctx, key)
+	return nil
 }
 
 // InvalidateAll clears all region caches by updating the cache version.
 //
 // This invalidates all existing cache keys by incrementing the version,
 // causing them to be regenerated on next access.
+// Silently fails if Redis is not initialized.
 func (cm *CacheManager) InvalidateAll(ctx context.Context) error {
 	newVersion := time.Now().UTC().Format(time.RFC3339Nano)
-	return cm.client.Set(ctx, fmt.Sprintf("%s:version", cm.prefix), newVersion, 0).Err()
+	// Silently ignore errors (e.g., Redis not initialized)
+	_ = redis.Save(ctx, fmt.Sprintf("%s:version", cm.prefix), newVersion)
+	return nil
 }
 
 // GenerateCacheKey creates a consistent cache key from version, type, and parameters.

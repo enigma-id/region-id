@@ -22,9 +22,9 @@ func NewHandler(repo repository.RegionRepository) *Handler {
 // RegisterRoutes registers all region routes to the given RestServer
 func (h *Handler) RegisterRoutes(s *rest.RestServer) {
 	s.GET("/regions/search", h.Search, nil)
-	s.GET("/regions/:id", h.GetRegion, nil)
-	s.GET("/regions/:id/children", h.GetChildren, nil)
-	s.GET("/regions/:id/path", h.GetPath, nil)
+	s.GET("/regions/{id}", h.GetRegion, nil)
+	s.GET("/regions/{id}/children", h.GetChildren, nil)
+	s.GET("/regions/{id}/path", h.GetPath, nil)
 }
 
 // Search handles region search requests

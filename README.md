@@ -81,21 +81,84 @@ docker-compose up -d postgres redis
 
 ### 2. Initialize the Library
 
+#### Using logistics-id/engine (Recommended)
+
 ```go
 package main
 
 import (
     "context"
     "database/sql"
-    "log"
 
     "github.com/enigma-id/region-id"
-    "github.com/redis/go-redis/v9"
+    "github.com/joho/godotenv"
+    "github.com/logistics-id/engine"
+    "github.com/logistics-id/engine/ds/redis"
+    "github.com/logistics-id/engine/transport/rest"
     "github.com/uptrace/bun"
     "github.com/uptrace/bun/dialect/pgdialect"
     "github.com/uptrace/bun/driver/pgdriver"
-    "github.com/logistics-id/engine/transport/rest"
     "go.uber.org/zap"
+)
+
+func init() {
+    godotenv.Load()
+    engine.Init("region-id-server")
+}
+
+func main() {
+    engine.OnStart(func(ctx context.Context) error {
+        logger := engine.Logger
+
+        // Setup database
+        sqldb := sql.OpenDB(pgdriver.NewConnector(
+            pgdriver.WithDSN("postgres://postgres:postgres@localhost:5432/regiondb?sslmode=disable"),
+        ))
+        db := bun.NewDB(sqldb, pgdialect.New())
+
+        // Setup Redis (optional - for caching)
+        cfg := &redis.Config{
+            Prefix:   "regions",
+            Server:   "localhost:6379",
+            Password: "",
+        }
+        if err := redis.NewConnection(cfg, logger); err != nil {
+            logger.Warn("Redis connection failed, caching disabled", zap.Error(err))
+        }
+
+        // Initialize with auto-migration
+        regionHandler, err := regionid.Initialize(regionid.Config{
+            DB:          db,
+            AutoMigrate: true,
+        })
+        if err != nil {
+            return err
+        }
+
+        // Store handler for use in Run
+        // ... (see full example in examples/rest-server)
+        return nil
+    })
+
+    engine.Run(func(ctx context.Context) {
+        // Start REST server
+        // ... (see full example in examples/rest-server)
+    })
+}
+```
+
+#### Without Redis (Database Only)
+
+```go
+package main
+
+import (
+    "database/sql"
+
+    "github.com/enigma-id/region-id"
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/dialect/pgdialect"
+    "github.com/uptrace/bun/driver/pgdriver"
 )
 
 func main() {
@@ -105,35 +168,16 @@ func main() {
     ))
     db := bun.NewDB(sqldb, pgdialect.New())
 
-    // Setup Redis (optional - for caching)
-    rdb := redis.NewClient(&redis.Options{
-        Addr: "localhost:6379",
-    })
-
-    // Setup logger
-    logger, _ := zap.NewDevelopment()
-
-    // Initialize with auto-migration
+    // Initialize without Redis - caching disabled
     regionHandler, err := regionid.Initialize(regionid.Config{
         DB:          db,
-        Redis:       rdb,
-        AutoMigrate: true, // Automatically runs migrations!
+        AutoMigrate: true,
     })
     if err != nil {
-        logger.Fatal("Failed to initialize", zap.Error(err))
+        panic(err)
     }
 
-    // Create REST server
-    cfg := &rest.Config{
-        Server: ":8080",
-        IsDev:  true,
-    }
-
-    server := rest.NewServer(cfg, logger, func(s *rest.RestServer) {
-        regionHandler.RegisterRoutes(s) // Register region routes
-    })
-
-    server.Start(context.Background())
+    // Use regionHandler...
 }
 ```
 
@@ -244,17 +288,43 @@ Returns the full path from root (province) to the specified region:
 ```go
 config := regionid.Config{
     DB:          db,           // Required: *bun.DB database connection
-    Redis:       rdb,          // Optional: *redis.Client (nil = no caching)
     AutoMigrate: true,         // Optional: Run migrations on startup (default: false)
 }
+```
+
+**Redis Integration:**
+- The library uses `engine/ds/redis` global singleton for caching
+- Call `redis.NewConnection()` **before** initializing region-id to enable caching
+- If Redis is not initialized, the library gracefully degrades to database-only mode
+- No need to pass Redis client to Config
+
+#### With Redis Caching
+
+```go
+import "github.com/logistics-id/engine/ds/redis"
+
+// Initialize Redis first
+cfg := &redis.Config{
+    Prefix:   "regions",
+    Server:   "localhost:6379",
+    Password: "",
+}
+redis.NewConnection(cfg, logger)
+
+// Then initialize region-id (will use global Redis singleton)
+regionHandler, err := regionid.Initialize(regionid.Config{
+    DB:          db,
+    AutoMigrate: true,
+})
 ```
 
 #### Without Redis (No Caching)
 
 ```go
+// Simply skip redis.NewConnection()
 regionHandler, err := regionid.Initialize(regionid.Config{
-    DB:    db,
-    Redis: nil,  // Caching disabled - queries go directly to database
+    DB:          db,
+    AutoMigrate: true,
 })
 ```
 
@@ -275,7 +345,6 @@ Then initialize without auto-migration:
 ```go
 regionHandler, err := regionid.Initialize(regionid.Config{
     DB:          db,
-    Redis:       rdb,
     AutoMigrate: false,  // Migrations already run manually
 })
 ```

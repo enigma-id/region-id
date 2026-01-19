@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 )
 
@@ -15,17 +14,15 @@ import (
 // When data changes, IncrementVersion should be called to update the version,
 // causing all cached data to be regenerated on next access.
 type DataVersionTracker struct {
-	db     *bun.DB
-	cache  *CacheManager
-	client *redis.Client
+	db    *bun.DB
+	cache *CacheManager
 }
 
 // NewDataVersionTracker creates a new data version tracker.
 func NewDataVersionTracker(db *bun.DB, cache *CacheManager) *DataVersionTracker {
 	return &DataVersionTracker{
-		db:     db,
-		cache:  cache,
-		client: cache.client,
+		db:    db,
+		cache: cache,
 	}
 }
 
@@ -40,7 +37,8 @@ func (dvt *DataVersionTracker) GetDataVersion(ctx context.Context) (string, erro
 
 	// Try to get from cache first
 	var cachedVersion string
-	if err := dvt.client.Get(ctx, cacheKey).Scan(&cachedVersion); err == nil && cachedVersion != "" {
+	found, _ := dvt.cache.Get(ctx, cacheKey, &cachedVersion)
+	if found && cachedVersion != "" {
 		return cachedVersion, nil
 	}
 
@@ -56,10 +54,7 @@ func (dvt *DataVersionTracker) GetDataVersion(ctx context.Context) (string, erro
 	version := maxUpdatedAt.UTC().Format(time.RFC3339Nano)
 
 	// Cache the version (with no expiry - we update it when data changes)
-	if err := dvt.client.Set(ctx, cacheKey, version, 0).Err(); err != nil {
-		// Log error but don't fail - we'll just query DB next time
-		// In production, you might want to log this warning
-	}
+	_ = dvt.cache.Set(ctx, cacheKey, version, 0)
 
 	return version, nil
 }
@@ -72,5 +67,5 @@ func (dvt *DataVersionTracker) IncrementVersion(ctx context.Context) error {
 	newVersion := time.Now().UTC().Format(time.RFC3339Nano)
 	cacheKey := "regions:max_updated_at:v1"
 
-	return dvt.client.Set(ctx, cacheKey, newVersion, 0).Err()
+	return dvt.cache.Set(ctx, cacheKey, newVersion, 0)
 }
