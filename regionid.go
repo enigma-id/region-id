@@ -59,6 +59,12 @@ type Config struct {
 	// AutoMigrate runs migrations on initialization (optional, default: false)
 	// When true, all pending migrations will be run automatically
 	AutoMigrate bool
+
+	// CacheEnabled enables Redis caching (optional, default: true)
+	// When false, all queries bypass the cache and go directly to the database
+	// Note: Redis must still be initialized via redis.NewConnection() before
+	// calling Initialize() for caching to work.
+	CacheEnabled bool
 }
 
 // Initialize initializes the region-id library with the given configuration.
@@ -80,6 +86,8 @@ func Initialize(cfg Config) (*Handler, error) {
 		return nil, fmt.Errorf("database connection is required")
 	}
 
+	fmt.Println("Initializing region-id library...")
+
 	// Run migrations if AutoMigrate is enabled
 	if cfg.AutoMigrate {
 		log.Println("Running auto-migration...")
@@ -91,7 +99,11 @@ func Initialize(cfg Config) (*Handler, error) {
 	}
 
 	// Initialize cache manager (uses global Redis singleton if available)
-	cache := repository.NewCacheManager()
+	// Only create cache manager if caching is enabled
+	var cache *repository.CacheManager
+	if cfg.CacheEnabled {
+		cache = repository.NewCacheManager()
+	}
 
 	// Initialize repository
 	repo := repository.NewRegionRepository(cfg.DB, cache)
@@ -99,5 +111,5 @@ func Initialize(cfg Config) (*Handler, error) {
 	// Initialize handler
 	h := handler.NewHandler(repo)
 
-	return h, nil
+	return (*Handler)(h), nil
 }

@@ -1,11 +1,9 @@
-module rest-server
+module github.com/enigma-id/region-id/examples
 
 go 1.24.4
 
-replace github.com/enigma-id/region-id => ../../
-
 require (
-	github.com/enigma-id/region-id v0.1.2
+	github.com/enigma-id/region-id v0.0.0-00010101000000-000000000000
 	github.com/joho/godotenv v1.5.1
 	github.com/logistics-id/engine v0.0.19-dev
 	github.com/logistics-id/engine/ds/redis v0.0.19-dev
@@ -40,3 +38,5 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 	mellium.im/sasl v0.3.2 // indirect
 )
+
+replace github.com/enigma-id/region-id => ../

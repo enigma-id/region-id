@@ -38,6 +38,11 @@ func (r *regionRepositoryImpl) Search(ctx context.Context, query string, opts Se
 		opts.Limit = 10
 	}
 
+	// If cache is not configured, query database directly
+	if r.cache == nil {
+		return r.searchDB(ctx, query, opts)
+	}
+
 	// 1) Get data version for cache key
 	version, err := r.versionTracker.GetDataVersion(ctx)
 	if err != nil {
@@ -97,11 +102,43 @@ func (r *regionRepositoryImpl) Search(ctx context.Context, query string, opts Se
 func (r *regionRepositoryImpl) searchDB(ctx context.Context, query string, opts SearchOptions) ([]*entity.Region, error) {
 	var regions []*entity.Region
 
+	// Use search_regions() SQL function when query is provided and no parent filter.
+	// The SQL function searches in: name, code, postal_code, AND administrative_area JSONB.
+	// It also provides ranking based on match quality.
+	//
+	// Fallback to query builder when parent filter is used (SQL function doesn't support parent_id).
+	if query != "" && opts.ParentID == nil {
+		limit := opts.Limit
+		if limit <= 0 {
+			limit = 10
+		}
+
+		var err error
+		if opts.Type != "" {
+			// With type filter - use raw SQL query to avoid CROSS JOIN
+			err = r.db.NewRaw(
+				"SELECT id, name, code, type, postal_code, parent_id, level, administrative_area FROM search_regions(?, ARRAY[?::TEXT], ?)",
+				query, opts.Type, limit,
+			).Scan(ctx, &regions)
+		} else {
+			// Without type filter - use raw SQL query to avoid CROSS JOIN
+			err = r.db.NewRaw(
+				"SELECT id, name, code, type, postal_code, parent_id, level, administrative_area FROM search_regions(?, NULL, ?)",
+				query, limit,
+			).Scan(ctx, &regions)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to search regions: %w", err)
+		}
+		return regions, nil
+	}
+
+	// Fallback: Original query builder for parent filtering or empty query
 	queryBuilder := r.db.NewSelect().
 		Model(&regions).
 		Where("is_deleted = false")
 
-	// Add text search if query provided
+	// Add text search if query provided (limited to name field in this path)
 	if query != "" {
 		queryBuilder = queryBuilder.Where("name ILIKE ?", "%"+query+"%")
 	}

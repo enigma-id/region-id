@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"os"
 
-	"github.com/enigma-id/region-id"
+	regionid "github.com/enigma-id/region-id"
 	"github.com/joho/godotenv"
 	"github.com/logistics-id/engine"
 	"github.com/logistics-id/engine/ds/redis"

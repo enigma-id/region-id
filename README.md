@@ -287,18 +287,27 @@ Returns the full path from root (province) to the specified region:
 
 ```go
 config := regionid.Config{
-    DB:          db,           // Required: *bun.DB database connection
-    AutoMigrate: true,         // Optional: Run migrations on startup (default: false)
+    DB:           db,           // Required: *bun.DB database connection
+    AutoMigrate:  true,         // Optional: Run migrations on startup (default: false)
+    CacheEnabled: true,         // Optional: Enable Redis caching (default: true)
 }
 ```
+
+**Configuration Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `DB` | `*bun.DB` | **Required** | Database connection |
+| `AutoMigrate` | `bool` | `false` | Run migrations on initialization |
+| `CacheEnabled` | `bool` | `true` | Enable/disable Redis caching |
 
 **Redis Integration:**
 - The library uses `engine/ds/redis` global singleton for caching
 - Call `redis.NewConnection()` **before** initializing region-id to enable caching
 - If Redis is not initialized, the library gracefully degrades to database-only mode
-- No need to pass Redis client to Config
+- Set `CacheEnabled: false` to explicitly disable caching even if Redis is available
 
-#### With Redis Caching
+#### With Redis Caching (Default)
 
 ```go
 import "github.com/logistics-id/engine/ds/redis"
@@ -311,22 +320,30 @@ cfg := &redis.Config{
 }
 redis.NewConnection(cfg, logger)
 
-// Then initialize region-id (will use global Redis singleton)
+// Then initialize region-id (caching enabled by default)
 regionHandler, err := regionid.Initialize(regionid.Config{
     DB:          db,
     AutoMigrate: true,
+    CacheEnabled: true,  // Optional - true is default
 })
 ```
 
-#### Without Redis (No Caching)
+#### Without Redis (Explicitly Disable Caching)
 
 ```go
-// Simply skip redis.NewConnection()
+// Skip redis.NewConnection() and explicitly disable caching
 regionHandler, err := regionid.Initialize(regionid.Config{
-    DB:          db,
-    AutoMigrate: true,
+    DB:           db,
+    AutoMigrate:  true,
+    CacheEnabled: false,  // Disable caching
 })
 ```
+
+**When to disable caching:**
+- Debugging SQL queries
+- Testing without Redis
+- Development environments
+- When data freshness is more important than performance
 
 #### Manual Migration
 

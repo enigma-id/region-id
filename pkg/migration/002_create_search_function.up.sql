@@ -31,7 +31,7 @@ RETURNS TABLE (
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ,
     is_deleted BOOLEAN,
-    rank NUMERIC
+    rank DOUBLE PRECISION
 ) AS $$
 DECLARE
     normalized_query TEXT;
@@ -110,22 +110,22 @@ BEGIN
             )
     )
     SELECT
-        id,
-        parent_id,
-        name,
-        code,
-        type,
-        level,
-        postal_code,
-        administrative_area,
-        latitude,
-        longitude,
-        created_at,
-        updated_at,
-        is_deleted,
-        rank
-    FROM search_results
-    ORDER BY rank DESC, name ASC
+        sr.id,
+        sr.parent_id,
+        sr.name,
+        sr.code,
+        sr.type,
+        sr.level,
+        sr.postal_code,
+        sr.administrative_area,
+        sr.latitude,
+        sr.longitude,
+        sr.created_at,
+        sr.updated_at,
+        sr.is_deleted,
+        sr.rank
+    FROM search_results sr
+    ORDER BY sr.rank DESC, sr.name ASC
     LIMIT limit_count;
 END;
 $$ LANGUAGE plpgsql;
