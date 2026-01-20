@@ -193,9 +193,13 @@ func buildValuesClause(r Region) string {
 	sb.WriteString("', ")
 
 	// updated_at
-	sb.WriteString("'")
-	sb.WriteString(r.UpdatedAt)
-	sb.WriteString("'")
+	if r.UpdatedAt != "" {
+		sb.WriteString("'")
+		sb.WriteString(r.UpdatedAt)
+		sb.WriteString("'")
+	} else {
+		sb.WriteString("NULL")
+	}
 
 	sb.WriteString(")")
 

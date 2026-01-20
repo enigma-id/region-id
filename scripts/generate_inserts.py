@@ -78,7 +78,7 @@ def generate_inserts():
             values += f"{longitude if longitude else 'NULL'}, "
             values += f"{escape_json(admin_area)}, "
             values += f"'{created_at}', "
-            values += f"'{updated_at}'"
+            values += f"'{updated_at}'" if updated_at else "NULL"
             values += ")"
 
             out.write(values)
